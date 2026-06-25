@@ -43,25 +43,28 @@ export default async function BoardPage({
     redirect(`/board?team=${team.slug}`);
   }
 
-  const [columns, rows] = await Promise.all([
-    prisma.column.findMany({
-      where: { teamId: team.id },
-      orderBy: { order: "asc" },
-      select: { id: true, name: true, isDone: true, order: true },
-    }),
-    prisma.task.findMany({
-      where: { column: { teamId: team.id }, columnId: { not: null } },
-      orderBy: { order: "asc" },
-      select: {
-        id: true,
-        title: true,
-        columnId: true,
-        dueAt: true,
-        _count: { select: { comments: true } },
-        checklist: { select: { done: true } },
-      },
-    }),
-  ]);
+  const columns = await prisma.column.findMany({
+    where: { teamId: team.id },
+    orderBy: { order: "asc" },
+    select: { id: true, name: true, isDone: true, order: true },
+  });
+
+  const columnIds = columns.map((c) => c.id);
+
+  const rows = columnIds.length
+    ? await prisma.task.findMany({
+        where: { columnId: { in: columnIds } },
+        orderBy: { order: "asc" },
+        select: {
+          id: true,
+          title: true,
+          columnId: true,
+          dueAt: true,
+          _count: { select: { comments: true } },
+          checklist: { select: { done: true } },
+        },
+      })
+    : [];
 
   const doneColIds = new Set(columns.filter((c) => c.isDone).map((c) => c.id));
   const now = Date.now();

@@ -35,32 +35,32 @@ export default async function TeamPage({
     redirect(`/team?team=${team.slug}`);
   }
 
-  const [columns, users] = await Promise.all([
-    prisma.column.findMany({
-      where: { teamId: team.id },
-      orderBy: { order: "asc" },
-      select: { id: true, name: true, isDone: true },
-    }),
-    prisma.user.findMany({
-      where: { memberships: { some: { teamId: team.id } } },
-      orderBy: { createdAt: "asc" },
-      select: {
-        id: true,
-        name: true,
-        tasks: {
-          where: { column: { teamId: team.id }, columnId: { not: null } },
-          orderBy: [{ columnId: "asc" }, { dueAt: "asc" }],
-          select: {
-            id: true,
-            title: true,
-            columnId: true,
-            dueAt: true,
-            column: { select: { name: true, isDone: true } },
-          },
+  const columns = await prisma.column.findMany({
+    where: { teamId: team.id },
+    orderBy: { order: "asc" },
+    select: { id: true, name: true, isDone: true },
+  });
+  const columnIds = columns.map((c) => c.id);
+
+  const users = await prisma.user.findMany({
+    where: { memberships: { some: { teamId: team.id } } },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      name: true,
+      tasks: {
+        where: columnIds.length ? { columnId: { in: columnIds } } : { id: "never" },
+        orderBy: [{ columnId: "asc" as const }, { dueAt: "asc" as const }],
+        select: {
+          id: true,
+          title: true,
+          columnId: true,
+          dueAt: true,
+          column: { select: { name: true, isDone: true } },
         },
       },
-    }),
-  ]);
+    },
+  });
 
   const firstCol = columns[0];
   const doneIds = new Set(columns.filter((c) => c.isDone).map((c) => c.id));

@@ -12,58 +12,45 @@ export default async function MyViewPage() {
   const accessibleTeams = await getAccessibleTeams(me.id);
   const accessibleTeamIds = accessibleTeams.map((t) => t.id);
 
-  // All tasks assigned to me across accessible teams
+  // Fetch accessible columns to filter tasks
+  const accessibleColumns = accessibleTeamIds.length
+    ? await prisma.column.findMany({
+        where: { teamId: { in: accessibleTeamIds } },
+        select: { id: true, isDone: true, teamId: true, name: true },
+      })
+    : [];
+  const openColIds = accessibleColumns.filter((c) => !c.isDone).map((c) => c.id);
+  const doneColIds = accessibleColumns.filter((c) => c.isDone).map((c) => c.id);
+  const colMap = new Map(accessibleColumns.map((c) => [c.id, c]));
+
   const [openTasks, doneTasks] = await Promise.all([
-    prisma.task.findMany({
-      where: {
-        assigneeId: me.id,
-        column: {
-          isDone: false,
-          ...(accessibleTeamIds.length > 0
-            ? { teamId: { in: accessibleTeamIds } }
-            : {}),
-        },
-        columnId: { not: null },
-      },
-      orderBy: [{ dueAt: "asc" }, { createdAt: "asc" }],
-      select: {
-        id: true,
-        title: true,
-        dueAt: true,
-        column: { select: { name: true, teamId: true } },
-      },
-    }),
-    prisma.task.findMany({
-      where: {
-        assigneeId: me.id,
-        column: {
-          isDone: true,
-          ...(accessibleTeamIds.length > 0
-            ? { teamId: { in: accessibleTeamIds } }
-            : {}),
-        },
-        columnId: { not: null },
-      },
-      orderBy: { updatedAt: "desc" },
-      take: 20,
-      select: {
-        id: true,
-        title: true,
-        dueAt: true,
-        column: { select: { name: true, teamId: true } },
-      },
-    }),
+    openColIds.length
+      ? prisma.task.findMany({
+          where: { assigneeId: me.id, columnId: { in: openColIds } },
+          orderBy: [{ dueAt: "asc" }, { createdAt: "asc" }],
+          select: { id: true, title: true, dueAt: true, columnId: true },
+        })
+      : Promise.resolve([]),
+    doneColIds.length
+      ? prisma.task.findMany({
+          where: { assigneeId: me.id, columnId: { in: doneColIds } },
+          orderBy: { updatedAt: "desc" },
+          take: 20,
+          select: { id: true, title: true, dueAt: true, columnId: true },
+        })
+      : Promise.resolve([]),
   ]);
 
   const teamMap = new Map(accessibleTeams.map((t) => [t.id, t.name]));
   const now = Date.now();
 
   function taskCard(
-    t: { id: string; title: string; dueAt: Date | null; column: { name: string; teamId: string | null } | null },
+    t: { id: string; title: string; dueAt: Date | null; columnId: string | null },
     done: boolean,
   ) {
     const overdue = !done && !!t.dueAt && t.dueAt.getTime() < now;
-    const teamName = t.column?.teamId ? teamMap.get(t.column.teamId) : null;
+    const col = t.columnId ? colMap.get(t.columnId) : null;
+    const teamName = col?.teamId ? teamMap.get(col.teamId) : null;
     return (
       <Link
         key={t.id}
@@ -76,7 +63,7 @@ export default async function MyViewPage() {
           </p>
           <p className="mt-0.5 text-xs text-slate-400">
             {teamName && <span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5">{teamName}</span>}
-            {t.column?.name}
+            {col?.name}
           </p>
         </div>
         {t.dueAt && (
