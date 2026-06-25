@@ -1,65 +1,95 @@
-import Image from "next/image";
+import Link from "next/link";
+import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/session";
+import { createTask, triageToBoard, deleteTask } from "./actions";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function InboxPage() {
+  const me = await getCurrentUser();
+  if (!me) {
+    return <p className="text-slate-500">右上で名前を入れて始めてください。</p>;
+  }
+
+  const tasks = await prisma.task.findMany({
+    where: { assigneeId: me.id, columnId: null },
+    orderBy: { createdAt: "desc" },
+  });
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="mx-auto max-w-2xl">
+      <div className="mb-1 flex items-baseline justify-between">
+        <h2 className="text-xl font-bold">📥 Inbox</h2>
+        <span className="text-sm text-slate-400">{tasks.length} 件</span>
+      </div>
+      <p className="mb-4 text-sm text-slate-500">
+        気になったこと、どんなに小さくてもまず書き込む。あとで整理。
+      </p>
+
+      <form
+        action={createTask}
+        className="mb-5 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row"
+      >
+        <input
+          name="title"
+          placeholder="思いついたことを入力…"
+          required
+          autoFocus
+          className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-base"
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+        <input
+          type="datetime-local"
+          name="dueAt"
+          className="rounded-lg border border-slate-300 px-3 py-2"
+          title="期限（任意）"
+        />
+        <button className="rounded-lg bg-blue-600 px-5 py-2 font-semibold text-white">
+          キャプチャ
+        </button>
+      </form>
+
+      <div className="flex flex-col gap-2">
+        {tasks.length === 0 && (
+          <p className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-400">
+            Inbox は空です 🎉
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+        )}
+        {tasks.map((t) => (
+          <div
+            key={t.id}
+            className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+            <Link href={`/card/${t.id}`} className="min-w-0 flex-1 hover:underline">
+              <p className="truncate text-sm">{t.title}</p>
+              {t.dueAt && (
+                <p className="text-xs text-slate-400">
+                  期限{" "}
+                  {t.dueAt.toLocaleString("ja-JP", {
+                    month: "numeric",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+              )}
+            </Link>
+            <div className="flex shrink-0 items-center gap-1">
+              <form action={triageToBoard}>
+                <input type="hidden" name="id" value={t.id} />
+                <button className="rounded-md bg-slate-800 px-2.5 py-1 text-xs text-white">
+                  ボードへ →
+                </button>
+              </form>
+              <form action={deleteTask}>
+                <input type="hidden" name="id" value={t.id} />
+                <button className="px-1 text-slate-300 hover:text-red-500" title="削除">
+                  ✕
+                </button>
+              </form>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

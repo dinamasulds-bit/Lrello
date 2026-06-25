@@ -1,0 +1,127 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String?  @unique
+  lineUserId   String?
+  lineLinkCode String?
+
+  googleAccessToken  String?
+  googleRefreshToken String?
+  googleTokenExpiry  DateTime?
+
+  createdAt    DateTime @default(now())
+
+  tasks       Task[]           @relation("assignee")
+  comments    Comment[]
+  memberships TeamMembership[]
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  memberships TeamMembership[]
+  columns     Column[]
+}
+
+model TeamMembership {
+  id     String @id @default(cuid())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId String
+  role   String @default("member") // "admin" | "member"
+
+  @@unique([userId, teamId])
+  @@index([userId])
+}
+
+// A board column / list. Customizable per team.
+model Column {
+  id        String   @id @default(cuid())
+  name      String
+  order     Int      @default(0)
+  isDone    Boolean  @default(false)
+  team      Team?    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId    String?
+  createdAt DateTime @default(now())
+
+  tasks     Task[]
+
+  @@index([teamId])
+}
+
+model Task {
+  id            String    @id @default(cuid())
+  title         String
+  description   String?                    // card detail body
+  dueAt         DateTime?                   // deadline (drives LINE notice)
+  plannedFor    DateTime?                   // planner: day scheduled to work on it
+  notified      Boolean   @default(false)  // deadline LINE notice already sent?
+  googleEventId String?                    // linked Google Calendar event id
+
+  // Board placement. columnId == null => still in Inbox (uncategorized).
+  column        Column?   @relation(fields: [columnId], references: [id], onDelete: SetNull)
+  columnId      String?
+  order         Int       @default(0)      // order within its column
+
+  assignee      User?     @relation("assignee", fields: [assigneeId], references: [id])
+  assigneeId    String?
+
+  comments      Comment[]
+  checklist     ChecklistItem[]
+  attachments   Attachment[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([dueAt])
+  @@index([assigneeId])
+  @@index([columnId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  body      String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  author    User?    @relation(fields: [authorId], references: [id])
+  authorId  String?
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+}
+
+model ChecklistItem {
+  id      String  @id @default(cuid())
+  text    String
+  done    Boolean @default(false)
+  order   Int     @default(0)
+  task    Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId  String
+
+  @@index([taskId])
+}
+
+model Attachment {
+  id     String @id @default(cuid())
+  kind   String @default("link") // link | image
+  url    String
+  label  String?
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId String
+
+  @@index([taskId])
+}
