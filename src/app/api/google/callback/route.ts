@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { users } from "@/lib/schema";
 import { getCurrentUser } from "@/lib/session";
-import { prisma } from "@/lib/prisma";
 import { exchangeCode } from "@/lib/google";
+
+export const runtime = "edge";
 
 export async function GET(req: Request) {
   const origin = new URL(req.url).origin;
@@ -23,15 +27,11 @@ export async function GET(req: Request) {
 
   try {
     const t = await exchangeCode(code);
-    await prisma.user.update({
-      where: { id: me.id },
-      data: {
-        googleAccessToken: t.access_token,
-        // Google only returns refresh_token on first consent — keep the old one otherwise.
-        ...(t.refresh_token ? { googleRefreshToken: t.refresh_token } : {}),
-        googleTokenExpiry: new Date(Date.now() + t.expires_in * 1000),
-      },
-    });
+    await db.update(users).set({
+      googleAccessToken: t.access_token,
+      ...(t.refresh_token ? { googleRefreshToken: t.refresh_token } : {}),
+      googleTokenExpiry: new Date(Date.now() + t.expires_in * 1000),
+    }).where(eq(users.id, me.id));
     return NextResponse.redirect(`${origin}/settings?google=connected`);
   } catch (e) {
     console.error("[google] callback", e);

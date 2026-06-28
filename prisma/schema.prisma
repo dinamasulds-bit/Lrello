@@ -80,6 +80,8 @@ model Task {
   assignee      User?     @relation("assignee", fields: [assigneeId], references: [id])
   assigneeId    String?
 
+  repeatType    String?   // "daily" | "weekly" | "monthly" — null = no repeat
+
   comments      Comment[]
   checklist     ChecklistItem[]
   attachments   Attachment[]

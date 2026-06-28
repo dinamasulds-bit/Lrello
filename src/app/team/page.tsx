@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { eq, asc, inArray } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { users, columns, tasks, teamMemberships } from "@/lib/schema";
 import { getCurrentUser } from "@/lib/session";
 import { getAccessibleTeams } from "@/lib/teams";
 import { TeamTabs } from "@/components/TeamTabs";
 import { createTask, deleteTask } from "../actions";
 
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 export default async function TeamPage({
@@ -28,42 +31,63 @@ export default async function TeamPage({
   }
 
   const team =
-    (params.team ? teams.find((t) => t.slug === params.team) : null) ??
-    teams[0];
+    (params.team ? teams.find((t) => t.slug === params.team) : null) ?? teams[0];
 
   if (!params.team || !teams.find((t) => t.slug === params.team)) {
     redirect(`/team?team=${team.slug}`);
   }
 
-  const columns = await prisma.column.findMany({
-    where: { teamId: team.id },
-    orderBy: { order: "asc" },
-    select: { id: true, name: true, isDone: true },
-  });
-  const columnIds = columns.map((c) => c.id);
+  const columnList = await db
+    .select({ id: columns.id, name: columns.name, isDone: columns.isDone })
+    .from(columns)
+    .where(eq(columns.teamId, team.id))
+    .orderBy(asc(columns.order));
 
-  const users = await prisma.user.findMany({
-    where: { memberships: { some: { teamId: team.id } } },
-    orderBy: { createdAt: "asc" },
-    select: {
-      id: true,
-      name: true,
-      tasks: {
-        where: columnIds.length ? { columnId: { in: columnIds } } : { id: "never" },
-        orderBy: [{ columnId: "asc" as const }, { dueAt: "asc" as const }],
-        select: {
-          id: true,
-          title: true,
-          columnId: true,
-          dueAt: true,
-          column: { select: { name: true, isDone: true } },
-        },
-      },
-    },
-  });
+  const columnIds = columnList.map((c) => c.id);
+  const doneIds = new Set(columnList.filter((c) => c.isDone).map((c) => c.id));
 
-  const firstCol = columns[0];
-  const doneIds = new Set(columns.filter((c) => c.isDone).map((c) => c.id));
+  const memberRows = await db
+    .select({ userId: teamMemberships.userId })
+    .from(teamMemberships)
+    .where(eq(teamMemberships.teamId, team.id));
+  const memberIds = memberRows.map((m) => m.userId);
+
+  const userList = memberIds.length
+    ? await db
+        .select({ id: users.id, name: users.name })
+        .from(users)
+        .where(inArray(users.id, memberIds))
+        .orderBy(asc(users.createdAt))
+    : [];
+
+  const taskRows =
+    columnIds.length && memberIds.length
+      ? await db
+          .select({
+            id: tasks.id,
+            title: tasks.title,
+            columnId: tasks.columnId,
+            dueAt: tasks.dueAt,
+            assigneeId: tasks.assigneeId,
+            columnName: columns.name,
+            columnIsDone: columns.isDone,
+          })
+          .from(tasks)
+          .leftJoin(columns, eq(tasks.columnId, columns.id))
+          .where(
+            inArray(tasks.columnId, columnIds),
+          )
+          .orderBy(asc(tasks.columnId), asc(tasks.dueAt))
+      : [];
+
+  const tasksByUser = new Map<string, typeof taskRows>();
+  for (const t of taskRows) {
+    if (!t.assigneeId) continue;
+    if (!tasksByUser.has(t.assigneeId)) tasksByUser.set(t.assigneeId, []);
+    tasksByUser.get(t.assigneeId)!.push(t);
+  }
+
+  const firstCol = columnList[0];
 
   return (
     <div>
@@ -92,30 +116,31 @@ export default async function TeamPage({
             defaultValue={me.id}
             className="rounded-lg border border-slate-300 px-3 py-2"
           >
-            {users.map((u) => (
+            {userList.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.name}
               </option>
             ))}
           </select>
-          <button className="rounded-lg bg-blue-600 px-5 py-2 font-semibold text-white">
+          <button className="rounded-lg bg-[#1D9E75] px-5 py-2 font-semibold text-white">
             追加
           </button>
         </form>
       )}
 
-      {users.length === 0 ? (
+      {userList.length === 0 ? (
         <p className="text-slate-500">
           このチームにメンバーがいません。
-          <Link href="/admin" className="ml-1 text-blue-600 underline">
+          <Link href="/admin" className="ml-1 text-[#1D9E75] underline">
             管理者ページ
           </Link>
           で割り当ててください。
         </p>
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-4">
-          {users.map((u) => {
-            const open = u.tasks.filter((t) => !doneIds.has(t.columnId!)).length;
+          {userList.map((u) => {
+            const userTasks = tasksByUser.get(u.id) ?? [];
+            const open = userTasks.filter((t) => !doneIds.has(t.columnId!)).length;
             return (
               <section
                 key={u.id}
@@ -128,13 +153,12 @@ export default async function TeamPage({
                   </span>
                 </div>
                 <div className="flex flex-col gap-2 p-2">
-                  {u.tasks.length === 0 && (
+                  {userTasks.length === 0 && (
                     <p className="px-1 py-3 text-xs text-slate-400">タスクなし</p>
                   )}
-                  {u.tasks.map((t) => {
-                    const isDone = t.column?.isDone ?? false;
-                    const overdue =
-                      t.dueAt && !isDone && t.dueAt.getTime() < Date.now();
+                  {userTasks.map((t) => {
+                    const isDone = t.columnIsDone ?? false;
+                    const overdue = t.dueAt && !isDone && t.dueAt.getTime() < Date.now();
                     return (
                       <div
                         key={t.id}
@@ -149,14 +173,12 @@ export default async function TeamPage({
                           </Link>
                           <form action={deleteTask}>
                             <input type="hidden" name="id" value={t.id} />
-                            <button className="text-slate-300 hover:text-red-500">
-                              ✕
-                            </button>
+                            <button className="text-slate-300 hover:text-red-500">✕</button>
                           </form>
                         </div>
                         <div className="mt-2 flex items-center justify-between">
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                            {t.column?.name}
+                            {t.columnName}
                           </span>
                           {t.dueAt && (
                             <span

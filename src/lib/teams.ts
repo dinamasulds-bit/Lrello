@@ -1,4 +1,6 @@
-import { prisma } from "@/lib/prisma";
+import { eq, asc } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { teams, teamMemberships, columns } from "@/lib/schema";
 
 export type TeamInfo = {
   id: string;
@@ -7,34 +9,36 @@ export type TeamInfo = {
   order: number;
 };
 
-export async function getUserTeams(userId: string): Promise<TeamInfo[]> {
-  const memberships = await prisma.teamMembership.findMany({
-    where: { userId },
-    include: { team: { select: { id: true, name: true, slug: true, order: true } } },
-    orderBy: { team: { order: "asc" } },
-  });
-  return memberships.map((m) => m.team);
-}
-
-export async function isAdminUser(userId: string): Promise<boolean> {
-  const m = await prisma.teamMembership.findFirst({
-    where: { userId, team: { slug: "all" } },
-  });
-  return !!m;
-}
-
 export async function getAllTeams(): Promise<TeamInfo[]> {
-  return prisma.team.findMany({
-    select: { id: true, name: true, slug: true, order: true },
-    orderBy: { order: "asc" },
-  });
+  return db.select({ id: teams.id, name: teams.name, slug: teams.slug, order: teams.order })
+    .from(teams).orderBy(asc(teams.order));
 }
 
 export async function getAccessibleTeams(userId: string): Promise<TeamInfo[]> {
-  const [isAdmin, myTeams] = await Promise.all([
-    isAdminUser(userId),
-    getUserTeams(userId),
-  ]);
+  const memberships = await db
+    .select({ id: teams.id, name: teams.name, slug: teams.slug, order: teams.order })
+    .from(teamMemberships)
+    .innerJoin(teams, eq(teamMemberships.teamId, teams.id))
+    .where(eq(teamMemberships.userId, userId))
+    .orderBy(asc(teams.order));
+
+  const isAdmin = memberships.some((t) => t.slug === "all");
   if (isAdmin) return getAllTeams();
-  return myTeams;
+  return memberships;
+}
+
+export async function getColumns(teamId: string) {
+  return db
+    .select({ id: columns.id, name: columns.name, isDone: columns.isDone, order: columns.order })
+    .from(columns)
+    .where(eq(columns.teamId, teamId))
+    .orderBy(asc(columns.order));
+}
+
+// Keep getCachedColumns as alias (no caching on edge — short-lived workers)
+export const getCachedColumns = getColumns;
+
+export async function isAdminUser(userId: string): Promise<boolean> {
+  const teams = await getAccessibleTeams(userId);
+  return teams.some((t) => t.slug === "all");
 }

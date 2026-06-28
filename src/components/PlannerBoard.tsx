@@ -60,7 +60,7 @@ export function PlannerBoard({ days, tasks }: { days: Day[]; tasks: Task[] }) {
         }}
         onDrop={() => drop(null)}
         className={`w-full shrink-0 rounded-xl border p-2 lg:w-56 ${
-          over === "pool" ? "border-blue-400 bg-blue-50" : "border-slate-200 bg-white"
+          over === "pool" ? "border-[#1D9E75] bg-[#E1F5EE]" : "border-slate-200 bg-white"
         }`}
       >
         <h3 className="mb-2 px-1 text-sm font-semibold text-slate-600">
@@ -88,9 +88,9 @@ export function PlannerBoard({ days, tasks }: { days: Day[]; tasks: Task[] }) {
             onDrop={() => drop(d.iso)}
             className={`flex min-h-[120px] flex-col rounded-xl border p-1.5 ${
               over === d.iso
-                ? "border-blue-400 bg-blue-50"
+                ? "border-[#1D9E75] bg-[#E1F5EE]"
                 : d.isToday
-                  ? "border-blue-200 bg-blue-50/40"
+                  ? "border-[#1D9E75]/30 bg-[#E1F5EE]/40"
                   : "border-slate-200 bg-white"
             }`}
           >

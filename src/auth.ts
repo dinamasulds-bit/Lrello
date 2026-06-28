@@ -1,46 +1,65 @@
 import NextAuth from "next-auth";
-import { prisma } from "@/lib/prisma";
+import { eq } from "drizzle-orm";
+import { db, newId } from "@/lib/db";
+import { users, teams, teamMemberships } from "@/lib/schema";
 import { authConfig } from "@/auth.config";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   ...authConfig,
+  session: { strategy: "jwt" },
   callbacks: {
     async signIn({ user }) {
       const email = user.email;
       if (!email) return false;
-      let dbUser = await prisma.user.findUnique({ where: { email } });
+
+      let [dbUser] = await db.select({ id: users.id, name: users.name })
+        .from(users).where(eq(users.email, email)).limit(1);
+
       if (!dbUser) {
-        dbUser = await prisma.user.create({
-          data: { name: user.name ?? email, email },
-        });
+        const [created] = await db.insert(users)
+          .values({ id: newId(), name: user.name ?? email, email })
+          .returning({ id: users.id, name: users.name });
+        dbUser = created;
       }
-      // Auto-assign admin emails to 全体管理 team on sign-in
+
       const adminEmails = (process.env.ADMIN_EMAILS ?? "")
-        .split(",")
-        .map((e) => e.trim())
-        .filter(Boolean);
-      if (adminEmails.includes(email)) {
-        const adminTeam = await prisma.team.findUnique({ where: { slug: "all" } });
+        .split(",").map((e) => e.trim()).filter(Boolean);
+
+      if (adminEmails.includes(email) && dbUser) {
+        const [adminTeam] = await db.select({ id: teams.id })
+          .from(teams).where(eq(teams.slug, "all")).limit(1);
         if (adminTeam) {
-          await prisma.teamMembership.upsert({
-            where: { userId_teamId: { userId: dbUser.id, teamId: adminTeam.id } },
-            create: { userId: dbUser.id, teamId: adminTeam.id, role: "admin" },
-            update: {},
-          });
+          await db.insert(teamMemberships)
+            .values({ id: newId(), userId: dbUser.id, teamId: adminTeam.id, role: "admin" })
+            .onConflictDoNothing();
         }
       }
       return true;
     },
-    async session({ session, token }) {
-      if (session.user?.email) {
-        const dbUser = await prisma.user.findUnique({
-          where: { email: session.user.email },
-          select: { id: true, name: true },
-        });
+
+    async jwt({ token, user }) {
+      if (user?.email) {
+        const [dbUser] = await db.select({ id: users.id, name: users.name })
+          .from(users).where(eq(users.email, user.email)).limit(1);
         if (dbUser) {
-          session.user.id = dbUser.id;
-          session.user.name = dbUser.name;
+          token.dbId = dbUser.id;
+          token.dbName = dbUser.name;
         }
+      } else if (!token.dbId && token.email) {
+        const [dbUser] = await db.select({ id: users.id, name: users.name })
+          .from(users).where(eq(users.email, token.email as string)).limit(1);
+        if (dbUser) {
+          token.dbId = dbUser.id;
+          token.dbName = dbUser.name;
+        }
+      }
+      return token;
+    },
+
+    async session({ session, token }) {
+      if (token.dbId) {
+        session.user.id = token.dbId as string;
+        session.user.name = token.dbName as string;
       }
       return session;
     },

@@ -22,7 +22,7 @@ export function TeamTabs({
             href={`${base}?team=${t.slug}`}
             className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition ${
               active
-                ? "-mb-px border-blue-600 text-blue-600"
+                ? "-mb-px border-[#1D9E75] text-[#1D9E75]"
                 : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >

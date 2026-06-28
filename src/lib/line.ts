@@ -1,25 +1,23 @@
-import crypto from "node:crypto";
-
 const TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN ?? "";
 const SECRET = process.env.LINE_CHANNEL_SECRET ?? "";
 const API = "https://api.line.me/v2/bot";
 
-// True once the channel token is configured in .env.
 export const lineConfigured = () => TOKEN.length > 0;
 
-// Verify the X-Line-Signature header against the raw request body.
-// Returns true if no secret is set (so local dev without creds doesn't hard-fail).
-export function verifyLineSignature(rawBody: string, signature: string | null) {
+export async function verifyLineSignature(rawBody: string, signature: string | null) {
   if (!SECRET) return true;
   if (!signature) return false;
-  const hmac = crypto
-    .createHmac("sha256", SECRET)
-    .update(rawBody)
-    .digest("base64");
-  // timingSafeEqual needs equal-length buffers.
-  const a = Buffer.from(hmac);
-  const b = Buffer.from(signature);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  const enc = new TextEncoder();
+  const key = await globalThis.crypto.subtle.importKey(
+    "raw",
+    enc.encode(SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await globalThis.crypto.subtle.sign("HMAC", key, enc.encode(rawBody));
+  const hmac = btoa(String.fromCharCode(...new Uint8Array(sig)));
+  return hmac === signature;
 }
 
 async function call(path: string, body: unknown) {

@@ -1,7 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import { and, eq } from "drizzle-orm";
+import { db, newId } from "@/lib/db";
+import { teamMemberships } from "@/lib/schema";
 import { getCurrentUser } from "@/lib/session";
 import { isAdminUser } from "@/lib/teams";
 
@@ -18,11 +20,9 @@ export async function addMembership(formData: FormData) {
   const userId = String(formData.get("userId") ?? "");
   const teamId = String(formData.get("teamId") ?? "");
   if (!userId || !teamId) return;
-  await prisma.teamMembership.upsert({
-    where: { userId_teamId: { userId, teamId } },
-    create: { userId, teamId },
-    update: {},
-  });
+  await db.insert(teamMemberships)
+    .values({ id: newId(), userId, teamId })
+    .onConflictDoNothing();
   revalidatePath("/admin");
 }
 
@@ -31,6 +31,7 @@ export async function removeMembership(formData: FormData) {
   const userId = String(formData.get("userId") ?? "");
   const teamId = String(formData.get("teamId") ?? "");
   if (!userId || !teamId) return;
-  await prisma.teamMembership.deleteMany({ where: { userId, teamId } });
+  await db.delete(teamMemberships)
+    .where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.teamId, teamId)));
   revalidatePath("/admin");
 }

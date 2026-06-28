@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { runDueNotifications } from "@/lib/notify";
 
+export const runtime = "edge";
+
 // Deadline notifier. Hit this on a schedule (Vercel Cron / cron-job.org / local cron):
 //   GET /api/cron/notify           (header: Authorization: Bearer <CRON_SECRET>)
 // Protected by CRON_SECRET when set.

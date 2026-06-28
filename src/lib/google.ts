@@ -1,4 +1,6 @@
-import { prisma } from "@/lib/prisma";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { users, tasks } from "@/lib/schema";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? "";
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? "";
@@ -15,7 +17,7 @@ export function getAuthUrl(state: string) {
     redirect_uri: REDIRECT_URI,
     response_type: "code",
     scope: SCOPE,
-    access_type: "offline", // get a refresh token
+    access_type: "offline",
     prompt: "consent",
     state,
   });
@@ -44,9 +46,15 @@ export async function exchangeCode(code: string): Promise<TokenResp> {
   return res.json();
 }
 
-// Return a valid access token for the user, refreshing if expired. null if not connected.
 async function getValidAccessToken(userId: string): Promise<string | null> {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const [user] = await db
+    .select({
+      googleAccessToken: users.googleAccessToken,
+      googleRefreshToken: users.googleRefreshToken,
+      googleTokenExpiry: users.googleTokenExpiry,
+    })
+    .from(users).where(eq(users.id, userId)).limit(1);
+
   if (!user?.googleRefreshToken) return null;
 
   const stillValid =
@@ -70,13 +78,10 @@ async function getValidAccessToken(userId: string): Promise<string | null> {
     return null;
   }
   const t: TokenResp = await res.json();
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      googleAccessToken: t.access_token,
-      googleTokenExpiry: new Date(Date.now() + t.expires_in * 1000),
-    },
-  });
+  await db.update(users).set({
+    googleAccessToken: t.access_token,
+    googleTokenExpiry: new Date(Date.now() + t.expires_in * 1000),
+  }).where(eq(users.id, userId));
   return t.access_token;
 }
 
@@ -85,7 +90,6 @@ function ymd(d: Date) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-// Build a Calendar event body from a task. Prefer a timed event (dueAt), else all-day (plannedFor).
 function eventBody(task: { title: string; dueAt: Date | null; plannedFor: Date | null }) {
   if (task.dueAt) {
     const end = new Date(task.dueAt.getTime() + 60 * 60 * 1000);
@@ -95,7 +99,6 @@ function eventBody(task: { title: string; dueAt: Date | null; plannedFor: Date |
       end: { dateTime: end.toISOString(), timeZone: TZ },
     };
   }
-  // all-day on plannedFor
   const day = task.plannedFor!;
   const next = new Date(day.getTime() + 24 * 60 * 60 * 1000);
   return {
@@ -107,17 +110,24 @@ function eventBody(task: { title: string; dueAt: Date | null; plannedFor: Date |
 
 const CAL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 
-// Create/update/delete the Google Calendar event mirroring a task. No-op if user not connected.
 export async function syncTask(taskId: string) {
   if (!googleConfigured()) return;
-  const task = await prisma.task.findUnique({
-    where: { id: taskId },
-    include: { assignee: true },
-  });
-  if (!task?.assignee) return;
 
-  const token = await getValidAccessToken(task.assignee.id);
-  if (!token) return; // user hasn't connected Google
+  const [task] = await db
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      dueAt: tasks.dueAt,
+      plannedFor: tasks.plannedFor,
+      googleEventId: tasks.googleEventId,
+      assigneeId: tasks.assigneeId,
+    })
+    .from(tasks).where(eq(tasks.id, taskId)).limit(1);
+
+  if (!task?.assigneeId) return;
+
+  const token = await getValidAccessToken(task.assigneeId);
+  if (!token) return;
 
   const hasSchedule = !!(task.dueAt || task.plannedFor);
   const headers = {
@@ -125,11 +135,10 @@ export async function syncTask(taskId: string) {
     "Content-Type": "application/json",
   };
 
-  // Nothing to schedule → remove any existing event.
   if (!hasSchedule) {
     if (task.googleEventId) {
       await fetch(`${CAL}/${task.googleEventId}`, { method: "DELETE", headers });
-      await prisma.task.update({ where: { id: task.id }, data: { googleEventId: null } });
+      await db.update(tasks).set({ googleEventId: null }).where(eq(tasks.id, task.id));
     }
     return;
   }
@@ -141,10 +150,7 @@ export async function syncTask(taskId: string) {
     const res = await fetch(CAL, { method: "POST", headers, body });
     if (res.ok) {
       const ev = await res.json();
-      await prisma.task.update({
-        where: { id: task.id },
-        data: { googleEventId: ev.id },
-      });
+      await db.update(tasks).set({ googleEventId: ev.id }).where(eq(tasks.id, task.id));
     } else {
       console.error("[google] create event failed", await res.text());
     }

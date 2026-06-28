@@ -1,9 +1,12 @@
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { users } from "@/lib/schema";
 import { getCurrentUser } from "@/lib/session";
-import { prisma } from "@/lib/prisma";
 import { generateLineCode, unlinkLine, disconnectGoogle } from "../actions";
 import { lineConfigured } from "@/lib/line";
 import { googleConfigured } from "@/lib/google";
 
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage({
@@ -15,7 +18,7 @@ export default async function SettingsPage({
   if (!me) return <p className="text-slate-500">右上で名前を入れて始めてください。</p>;
 
   const { google } = await searchParams;
-  const user = await prisma.user.findUnique({ where: { id: me.id } });
+  const [user] = await db.select().from(users).where(eq(users.id, me.id)).limit(1);
   const linked = !!user?.lineUserId;
   const configured = lineConfigured();
   const gConfigured = googleConfigured();
@@ -75,7 +78,6 @@ export default async function SettingsPage({
         </div>
       </section>
 
-      {/* Google Calendar */}
       <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
         <h3 className="font-semibold">🗓 Google カレンダー連携</h3>
         <p className="mt-1 text-sm text-slate-500">
@@ -111,7 +113,7 @@ export default async function SettingsPage({
           ) : (
             <a
               href="/api/google/auth"
-              className="inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
+              className="inline-block rounded-lg bg-[#1D9E75] px-4 py-2 text-sm font-semibold text-white"
             >
               Google で連携
             </a>
@@ -142,16 +144,11 @@ LINE_CHANNEL_ACCESS_TOKEN=xxx{"\n"}LINE_CHANNEL_SECRET=xxx{"\n"}CRON_SECRET=任�
             期限チェックを定期実行（例: 毎分）。
             <code>GET /api/cron/notify</code> に{" "}
             <code>Authorization: Bearer &lt;CRON_SECRET&gt;</code> を付けて叩く
-            （Vercel Cron / cron-job.org / ローカル cron）
           </li>
           <li>
             Google Cloud で OAuth クライアント(ウェブ)作成 → Calendar API 有効化 →
             承認済みリダイレクト URI に{" "}
             <code>https://&lt;ドメイン&gt;/api/google/callback</code> を登録。
-            <code>.env</code> に設定:
-            <pre className="mt-1 rounded bg-slate-50 p-2 text-xs">
-GOOGLE_CLIENT_ID=xxx{"\n"}GOOGLE_CLIENT_SECRET=xxx{"\n"}GOOGLE_REDIRECT_URI=https://&lt;ドメイン&gt;/api/google/callback
-            </pre>
           </li>
         </ol>
       </details>

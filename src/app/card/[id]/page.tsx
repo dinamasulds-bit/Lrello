@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { eq, asc, desc } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { tasks, columns, users, checklistItems, attachments, comments } from "@/lib/schema";
 import {
   updateTask,
   deleteTaskAndGoBoard,
@@ -12,9 +14,9 @@ import {
   deleteAttachment,
 } from "@/app/actions";
 
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
-// datetime-local wants "YYYY-MM-DDTHH:mm" in local time.
 function toLocalInput(d: Date | null) {
   if (!d) return "";
   const p = (n: number) => String(n).padStart(2, "0");
@@ -27,23 +29,49 @@ export default async function CardPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const task = await prisma.task.findUnique({
-    where: { id },
-    include: {
-      column: true,
-      assignee: true,
-      checklist: { orderBy: { order: "asc" } },
-      attachments: true,
-      comments: {
-        orderBy: { createdAt: "desc" },
-        include: { author: true },
-      },
-    },
-  });
+
+  const [task] = await db
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      description: tasks.description,
+      dueAt: tasks.dueAt,
+      repeatType: tasks.repeatType,
+      columnId: tasks.columnId,
+      assigneeId: tasks.assigneeId,
+      columnName: columns.name,
+      assigneeName: users.name,
+    })
+    .from(tasks)
+    .leftJoin(columns, eq(tasks.columnId, columns.id))
+    .leftJoin(users, eq(tasks.assigneeId, users.id))
+    .where(eq(tasks.id, id))
+    .limit(1);
+
   if (!task) notFound();
 
-  const checkTotal = task.checklist.length;
-  const checkDone = task.checklist.filter((c) => c.done).length;
+  const [checklist, attachmentList, commentList] = await Promise.all([
+    db
+      .select()
+      .from(checklistItems)
+      .where(eq(checklistItems.taskId, id))
+      .orderBy(asc(checklistItems.order)),
+    db.select().from(attachments).where(eq(attachments.taskId, id)),
+    db
+      .select({
+        id: comments.id,
+        body: comments.body,
+        createdAt: comments.createdAt,
+        authorName: users.name,
+      })
+      .from(comments)
+      .leftJoin(users, eq(comments.authorId, users.id))
+      .where(eq(comments.taskId, id))
+      .orderBy(desc(comments.createdAt)),
+  ]);
+
+  const checkTotal = checklist.length;
+  const checkDone = checklist.filter((c) => c.done).length;
   const pct = checkTotal ? Math.round((checkDone / checkTotal) * 100) : 0;
 
   return (
@@ -54,16 +82,25 @@ export default async function CardPage({
 
       <div className="mt-2 mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
         <span className="rounded-full bg-slate-100 px-2 py-0.5">
-          {task.column ? task.column.name : "📥 Inbox"}
+          {task.columnName ? task.columnName : "📥 Inbox"}
         </span>
-        {task.assignee && (
+        {task.assigneeName && (
           <span className="rounded-full bg-slate-100 px-2 py-0.5">
-            担当: {task.assignee.name}
+            担当: {task.assigneeName}
+          </span>
+        )}
+        {task.repeatType && (
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">
+            🔁{" "}
+            {task.repeatType === "daily"
+              ? "毎日"
+              : task.repeatType === "weekly"
+                ? "毎週"
+                : "毎月"}
           </span>
         )}
       </div>
 
-      {/* Title / description / due */}
       <form action={updateTask} className="rounded-xl border border-slate-200 bg-white p-4">
         <input type="hidden" name="id" value={task.id} />
         <input
@@ -86,7 +123,18 @@ export default async function CardPage({
             defaultValue={toLocalInput(task.dueAt)}
             className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
           />
-          <button className="ml-auto rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white">
+          <label className="text-sm text-slate-500">繰り返し</label>
+          <select
+            name="repeatType"
+            defaultValue={task.repeatType ?? ""}
+            className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
+          >
+            <option value="">なし</option>
+            <option value="daily">毎日</option>
+            <option value="weekly">毎週</option>
+            <option value="monthly">毎月</option>
+          </select>
+          <button className="ml-auto rounded-lg bg-[#1D9E75] px-4 py-1.5 text-sm font-semibold text-white">
             保存
           </button>
         </div>
@@ -106,7 +154,7 @@ export default async function CardPage({
           </div>
         )}
         <div className="flex flex-col gap-1">
-          {task.checklist.map((item) => (
+          {checklist.map((item) => (
             <div key={item.id} className="flex items-center gap-2">
               <form action={toggleChecklistItem}>
                 <input type="hidden" name="id" value={item.id} />
@@ -147,11 +195,11 @@ export default async function CardPage({
         </form>
       </section>
 
-      {/* Attachments / links */}
+      {/* Attachments */}
       <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
         <h3 className="mb-2 font-semibold">🔗 リンク・画像</h3>
         <div className="flex flex-col gap-2">
-          {task.attachments.map((a) => (
+          {attachmentList.map((a) => (
             <div key={a.id} className="flex items-center gap-2">
               {a.kind === "image" ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -167,7 +215,7 @@ export default async function CardPage({
                 href={a.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex-1 truncate text-sm text-blue-600 hover:underline"
+                className="flex-1 truncate text-sm text-[#1D9E75] hover:underline"
               >
                 {a.label || a.url}
               </a>
@@ -219,9 +267,9 @@ export default async function CardPage({
           </button>
         </form>
         <div className="flex flex-col gap-3">
-          {task.comments.map((c) => (
+          {commentList.map((c) => (
             <div key={c.id} className="text-sm">
-              <span className="font-semibold">{c.author?.name ?? "誰か"}</span>{" "}
+              <span className="font-semibold">{c.authorName ?? "誰か"}</span>{" "}
               <span className="text-xs text-slate-400">
                 {c.createdAt.toLocaleString("ja-JP", {
                   month: "numeric",
