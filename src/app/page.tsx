@@ -5,7 +5,6 @@ import { tasks } from "@/lib/schema";
 import { getCurrentUser } from "@/lib/session";
 import { createTask, triageToBoard, deleteTask } from "./actions";
 
-export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 export default async function InboxPage() {

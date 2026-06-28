@@ -8,7 +8,6 @@ import { getAccessibleTeams } from "@/lib/teams";
 import { TeamTabs } from "@/components/TeamTabs";
 import { createTask, deleteTask } from "../actions";
 
-export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 export default async function TeamPage({

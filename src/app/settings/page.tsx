@@ -6,7 +6,6 @@ import { generateLineCode, unlinkLine, disconnectGoogle } from "../actions";
 import { lineConfigured } from "@/lib/line";
 import { googleConfigured } from "@/lib/google";
 
-export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage({

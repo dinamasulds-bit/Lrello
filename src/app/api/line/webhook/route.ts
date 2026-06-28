@@ -4,7 +4,6 @@ import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
 import { verifyLineSignature, replyText } from "@/lib/line";
 
-export const runtime = "edge";
 
 export async function POST(req: Request) {
   const raw = await req.text();

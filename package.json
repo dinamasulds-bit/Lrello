@@ -7,9 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "pages:build": "next build && npx @cloudflare/next-on-pages",
-    "deploy": "npm run pages:build && wrangler pages deploy .vercel/output/static",
-    "preview": "npm run pages:build && wrangler pages dev .vercel/output/static"
+    "cf:build": "npx @opennextjs/cloudflare build",
+    "deploy": "npm run cf:build && wrangler deploy",
+    "preview": "npm run cf:build && wrangler dev"
   },
   "dependencies": {
     "drizzle-orm": "^0.43.1",
@@ -20,7 +20,7 @@
     "react-dom": "19.2.4"
   },
   "devDependencies": {
-    "@cloudflare/next-on-pages": "^1.13.16",
+    "@opennextjs/cloudflare": "^1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

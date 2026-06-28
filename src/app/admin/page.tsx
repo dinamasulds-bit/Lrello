@@ -6,7 +6,6 @@ import { getCurrentUser } from "@/lib/session";
 import { isAdminUser } from "@/lib/teams";
 import { addMembership, removeMembership } from "./actions";
 
-export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {

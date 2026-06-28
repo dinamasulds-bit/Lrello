@@ -6,7 +6,6 @@ import { users } from "@/lib/schema";
 import { getCurrentUser } from "@/lib/session";
 import { exchangeCode } from "@/lib/google";
 
-export const runtime = "edge";
 
 export async function GET(req: Request) {
   const origin = new URL(req.url).origin;

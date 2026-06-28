@@ -5,7 +5,6 @@ import { tasks, columns } from "@/lib/schema";
 import { getCurrentUser } from "@/lib/session";
 import { getAccessibleTeams } from "@/lib/teams";
 
-export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 export default async function MyViewPage() {

@@ -4,7 +4,6 @@ import { tasks, columns } from "@/lib/schema";
 import { getCurrentUser } from "@/lib/session";
 import { PlannerBoard } from "@/components/PlannerBoard";
 
-export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 function ymd(d: Date) {

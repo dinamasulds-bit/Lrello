@@ -14,7 +14,6 @@ import {
   deleteAttachment,
 } from "@/app/actions";
 
-export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 function toLocalInput(d: Date | null) {

@@ -7,7 +7,6 @@ import { getAccessibleTeams, getCachedColumns } from "@/lib/teams";
 import { BoardView, type Card } from "@/components/BoardView";
 import { TeamTabs } from "@/components/TeamTabs";
 
-export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 function dueLabel(d: Date) {
